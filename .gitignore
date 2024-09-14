@@ -259,3 +259,4 @@ fabric.properties
 ## datasets and runs dir
 datasets
 runs
+official_ckpt
