@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 import urllib
+import json
 from copy import deepcopy
 from datetime import datetime
 from itertools import repeat
@@ -770,6 +771,43 @@ def labels_to_image_weights(labels, nc=80, class_weights=np.ones(80)):
     class_counts = np.array([np.bincount(x[:, 0].astype(int), minlength=nc) for x in labels])
     return (class_weights.reshape(1, nc) * class_counts).sum(1)
 
+def image_to_id(json_path):
+    with open(json_path, "r") as f:
+        data = json.load(f)
+    image_map = dict()
+    for _ in data["images"]:
+        image_map[_["file_name"]] = _["id"]
+    return image_map
+
+def Lesion_to_16_class():
+    return [37,41,8,21,1,42,11,30,20,2,16,25,40,19,44,3]
+
+def VOC_to_20_class():
+    return list(range(1,21))
+
+def coco80_to_voc20_class():
+    m = [-1]*80
+    m[4] = 1
+    m[1] = 2
+    m[14] = 3
+    m[8] = 4
+    m[39] = 5
+    m[5] = 6
+    m[2] = 7
+    m[15] = 8
+    m[56] = 9
+    m[19] = 10
+    m[60] = 11
+    m[16] = 12
+    m[17] = 13
+    m[3] = 14
+    m[0] = 15 #person
+    m[58] = 16
+    m[18] = 17
+    m[57] = 18
+    m[6] = 19
+    m[62] = 20
+    return m
 
 def coco80_to_coco91_class():
     """
@@ -1113,6 +1151,53 @@ def non_max_suppression(
             LOGGER.warning(f"WARNING ⚠️ NMS time limit {time_limit:.3f}s exceeded")
             break  # time limit exceeded
 
+    return output
+
+
+def parse_prediction(prediction, multi_label=False, conf_thres=0.05):
+    """
+    Parse the prediction results from an object detection model and filter out low-confidence detections.
+    
+    Args:
+        prediction (torch.Tensor): The output from the object detection model, with shape (batch_size, num_detections, num_classes + 5).
+                                   The last dimension contains [x, y, w, h, obj_conf, cls_conf_1, cls_conf_2, ...].
+        resized_image (torch.Tensor): The resized image that was input to the model.
+        origin_image (torch.Tensor): The original image before resizing.
+        multi_label (bool): If True, consider multi-label classification (multiple classes per bounding box).
+                            If False, only consider the highest-confidence class per bounding box.
+        conf_thres (float): Confidence threshold to filter out low-confidence detections.
+    
+    Returns:
+        List[torch.Tensor]: A list of tensors, each tensor containing the detections for one image in the batch.
+                            Each detection is represented as a row of [x1, y1, x2, y2, confidence, class].
+    """
+    if isinstance(prediction, (list, tuple)):  # YOLOv5 model in validation model, output = (inference_out, loss_out)
+        prediction = prediction[0]  # select only inference output
+    batch_size = prediction.shape[0]  # batch size
+    output = [torch.zeros((0, 6), device=prediction.device)] * batch_size
+    candidates = prediction[..., 4] > conf_thres  # candidates
+    for xi, x in enumerate(prediction):  # image index, image inference
+        x = x[candidates[xi]]  # confidence
+        # If none remain process next image
+        if not x.shape[0]:
+            continue
+        # Compute conf
+        x[:, 5:] *= x[:, 4:5]  # conf = obj_conf * cls_conf
+        # Convert bounding box format from (center_x, center_y, width, height) to (x1, y1, x2, y2)
+        box = xywh2xyxy(x[:, :4])
+
+        if multi_label:
+            i, j = (x[:, 5:] > conf_thres).nonzero(as_tuple=False).T
+            x = torch.cat((box[i], x[i, 5 + j, None], j[:, None].float()), 1)
+        else:  # best class only
+            conf, j = x[:, 5:].max(1, keepdim=True)
+            x = torch.cat((box, conf, j.float()), 1)[conf.view(-1) > conf_thres]
+        # Check shape
+        n = x.shape[0]  # number of boxes
+        if not n:  # no boxes
+            continue
+        x = x[x[:, 4].argsort(descending=True)]  # sort by confidence and remove excess boxes
+        output[xi] = x
     return output
 
 
