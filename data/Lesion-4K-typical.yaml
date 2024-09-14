@@ -1,0 +1,32 @@
+# YOLOv5 🚀 by Ultralytics, AGPL-3.0 license
+# Lesion-4K-typical dataset
+# Example usage: python train.py --data Lesion-4K-typical.yaml
+# parent
+# ├── yolov5
+# └── datasets
+#     └── Lesion-4K-typical-yolo
+
+# Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
+path: ./datasets/Lesion-4K-typical-yolo # dataset root dir
+train: train2024.txt # train images (relative to 'path') 2294 images
+val: val2024.txt # val images (relative to 'path') 963 images
+test: val2024.txt
+
+# Classes
+names:
+  0: PVD # 37
+  1: RD # 41
+  2: IRF # 8
+  3: 后巩膜葡萄肿 # 21
+  4: ERM # 1
+  5: NsPED # 42
+  6: HRD # 11
+  7: RPE萎缩 # 30
+  8: 双层征 # 20
+  9: MH # 2
+  10: sPED # 16
+  11: 视盘水肿 # 25
+  12: Drusen # 40
+  13: CHD曲度异常 # 19
+  14: 视网膜增殖膜 # 44
+  15: VMT # 3
