@@ -11,6 +11,7 @@ path: ./datasets/Lesion-4K-typical-yolo # dataset root dir
 train: train2024.txt # train images (relative to 'path') 2294 images
 val: val2024.txt # val images (relative to 'path') 963 images
 test: val2024.txt
+anno_json: ./datasets/Lesion-4K/annotations/instances_val2024.json
 
 # Classes
 names:
