@@ -59,6 +59,7 @@ from utils.general import (
 from utils.metrics import ConfusionMatrix, ap_per_class, box_iou
 from utils.plots import output_to_target, plot_images, plot_val_study
 from utils.torch_utils import select_device, smart_inference_mode
+from utils.general import coco80_to_voc20_class, VOC_to_20_class, Lesion_to_16_class, image_to_id
 
 
 def save_one_txt(predn, save_conf, shape, file):
@@ -71,13 +72,14 @@ def save_one_txt(predn, save_conf, shape, file):
             f.write(("%g " * len(line)).rstrip() % line + "\n")
 
 
-def save_one_json(predn, jdict, path, class_map):
+def save_one_json(predn, jdict, path, class_map, image_map):
     """
     Saves one JSON detection result with image ID, category ID, bounding box, and score.
 
     Example: {"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}
     """
-    image_id = int(path.stem) if path.stem.isnumeric() else path.stem
+    # image_id = int(path.stem) if path.stem.isnumeric() else path.stem
+    image_id = image_map[path.stem+".jpg"]
     box = xyxy2xywh(predn[:, :4])  # xywh
     box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
     for p, b in zip(predn.tolist(), box.tolist()):
@@ -181,6 +183,8 @@ def run(
     model.eval()
     cuda = device.type != "cpu"
     is_coco = isinstance(data.get("val"), str) and data["val"].endswith(f"coco{os.sep}val2017.txt")  # COCO dataset
+    is_Lesion4K = isinstance(data.get("val"), str) and data["val"].endswith(f"val2024.txt") # Lesion4K dataset
+    anno_json = data["anno_json"]
     nc = 1 if single_cls else int(data["nc"])  # number of classes
     iouv = torch.linspace(0.5, 0.95, 10, device=device)  # iou vector for mAP@0.5:0.95
     niou = iouv.numel()
@@ -213,7 +217,16 @@ def run(
     names = model.names if hasattr(model, "names") else model.module.names  # get class names
     if isinstance(names, (list, tuple)):  # old format
         names = dict(enumerate(names))
-    class_map = coco80_to_coco91_class() if is_coco else list(range(1000))
+    if is_coco:
+        class_map = coco80_to_coco91_class()
+    elif is_Lesion4K:
+        class_map = Lesion_to_16_class()
+    else:
+        class_map = list(range(1000))
+    # class_map = coco80_to_coco91_class() if is_coco else list(range(1000))
+    ## image_map
+    image_map = image_to_id(anno_json)
+
     s = ("%22s" + "%11s" * 6) % ("Class", "Images", "Instances", "P", "R", "mAP50", "mAP50-95")
     tp, fp, p, r, f1, mp, mr, map50, ap50, map = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     dt = Profile(device=device), Profile(device=device), Profile(device=device)  # profiling times
@@ -283,7 +296,7 @@ def run(
                 (save_dir / "labels").mkdir(parents=True, exist_ok=True)
                 save_one_txt(predn, save_conf, shape, file=save_dir / "labels" / f"{path.stem}.txt")
             if save_json:
-                save_one_json(predn, jdict, path, class_map)  # append to COCO-JSON dictionary
+                save_one_json(predn, jdict, path, class_map, image_map)  # append to COCO-JSON dictionary
             callbacks.run("on_val_image_end", pred, predn, path, names, im[si])
 
         # Plot images
@@ -298,7 +311,8 @@ def run(
     if len(stats) and stats[0].any():
         tp, fp, p, r, f1, ap, ap_class = ap_per_class(*stats, plot=plots, save_dir=save_dir, names=names)
         ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
-        mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
+        # mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
+        mp, mr, map50, map = p[:11].mean(), r[:11].mean(), ap50[:11].mean(), ap[:11].mean()
     nt = np.bincount(stats[3].astype(int), minlength=nc)  # number of targets per class
 
     # Print results
@@ -326,7 +340,7 @@ def run(
     # Save JSON
     if save_json and len(jdict):
         w = Path(weights[0] if isinstance(weights, list) else weights).stem if weights is not None else ""  # weights
-        anno_json = str(Path("../datasets/coco/annotations/instances_val2017.json"))  # annotations
+        # anno_json = str(Path("../datasets/coco/annotations/instances_val2017.json"))  # annotations
         if not os.path.exists(anno_json):
             anno_json = os.path.join(data["path"], "annotations", "instances_val2017.json")
         pred_json = str(save_dir / f"{w}_predictions.json")  # predictions
